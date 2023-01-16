@@ -11,6 +11,7 @@ sem_t* semaphore;
 pid_t other;
 sigset_t sigset;
 pid_t pid;
+FILE *filelog;
 
 int resource;//1 or 2 depending on who changes it
 
@@ -39,6 +40,7 @@ void *changeResource(int* num)
 	
 	//If it's not available, it prompts the user to attempt a release or do nothing
 	if (value == 0){
+		fprintf(filelog, "semaphore not available");
 		printf("semaphore not available\n");
 		printf("release semaphore?\n");
 		printf("0 = No, 1 = Yes\n");
@@ -50,16 +52,19 @@ void *changeResource(int* num)
 			if (input == 0){
 				printf("not attempting to obtain semaphore...\n");
 				printf("exiting...\n");
+				fprintf(filelog, "user chose not to attempt release - exiting\n");
 				_exit(0);
 			}
 			//Kills other process to obtain the semaphore if user decides to release it
 			else if (input == 1){
+			fprintf(filelog, "user chose to attempt release\n");
 				if (sem_trywait(semaphore) != 0){
 					pthread_t tid1;
 					
 					printf("PARENT PROCESS: killing child process\n");
 					kill(other, SIGUSR1);
 					printf("PARENT PROCESS: child process killed\n");
+					fprintf(filelog, "child process killed\n");
 					printf("PARENT PROCESS: testing if child process killed\n");
 					sleep(5);
 					kill(other, SIGUSR2);
@@ -77,6 +82,7 @@ void *changeResource(int* num)
 						printf("Semaphore obtained\n");
 						resource = *num;
 						printf("resource changed to %d\n", resource);
+						fprintf(filelog, "resource changed to %d\n", resource);
 						if (pid == 0){
 							printf("Sleeping...\n");
 							sleep(60);
@@ -90,6 +96,7 @@ void *changeResource(int* num)
 						printf("Semaphore obtained\n");
 						resource = *num;
 						printf("resource changed to %d\n", resource);
+						fprintf(filelog, "resource changed to %d\n", resource);
 						if (pid == 0){
 							printf("Sleeping...\n");
 							sleep(60);
@@ -114,17 +121,22 @@ void *changeResource(int* num)
 		sem_getvalue(semaphore, &value);
 		if (value == 0){
 			printf("semaphore obtained\n");
+			fprintf(filelog, "semaphore obtained\n");
 			resource = *num;
 			printf("resource changed to %d\n", resource);
+			fprintf(filelog, "resource changed to %d\n", resource);
 			if (pid == 0){
 				printf("Sleeping...\n");
+				fprintf(filelog, "Sleeping...\n");
 				sleep(60);
 			}
 			sem_post(semaphore);
 			printf("Semaphore released\n");
+			fprintf(filelog, "Semaphore released\n");
 		}
 		else{
 			printf("ERROR: semaphore not obtained\n");
+			fprintf(filelog, "ERROR: semaphore not obtained\n");
 			exit(EXIT_FAILURE);
 		}
 	}
@@ -142,6 +154,7 @@ void childProcess()
 	//Calls shared function
 	changeResource(&num);
 	printf("CHILD PROCESS: exiting\n");
+	fprintf(filelog, "CHILD PROCESS: exiting\n");
 	_exit(0);
 }
 
@@ -151,20 +164,32 @@ void parentProcess()
 	sleep(10);
 	if (getpgid(other) >= 0){
 		printf("PARENT PROCESS: child process is running\n");
+		fprintf(filelog, "PARENT PROCESS: child process is running\n");
 	}
 	int num = 2;
 	//Calls shared function
 	changeResource(&num);
 	printf("PARENT PROCESS: exiting\n");
+	fprintf(filelog, "PARENT PROCESS: exiting\n");
 	_exit(0);
 }
 
 int main(int argc, char* argv[])
 {
+	//Create file
+	filelog = fopen("filelog.txt", "w");
+	if (filelog == NULL){
+		printf("ERROR: log not created\n");
+		exit(EXIT_FAILURE);
+	}
+	else{
+		fprintf(filelog, "Log Start\n");
+	}
 	//create semaphore
 	semaphore = (sem_t*)mmap(0, sizeof(sem_t), PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS, -1, 0);
 	if (sem_init(semaphore, 1, 1) != 0){
 		printf("ERROR: semifore not created\n");
+		fprintf(filelog, "ERROR: semifore not created\n");
 		exit(EXIT_FAILURE);
 	}
 	
@@ -172,21 +197,26 @@ int main(int argc, char* argv[])
 	pid = fork();
 	if (pid < 0){
 		printf("ERROR: fork failed\n");
+		fprintf(filelog, "ERROR: fork failed\n");
 		exit(EXIT_FAILURE);
 	}
 	if (pid == 0){
 		printf("CHILD PROCESS: created\n");
+		fprintf(filelog, "CHILD PROCESS: created\n");
 		other = getppid();
 		childProcess();
 	}
 	else{
 		printf("PARENT PROCESS: created\n");
+		fprintf(filelog, "PARENT PROCESS: created\n");
 		other = pid;
 		parentProcess();
 		
 	}
 	
 	//Cleanup
+	fflush(filelog);
+	fclose(filelog);
 	sem_destroy(semaphore);
 	
 	return 0;
